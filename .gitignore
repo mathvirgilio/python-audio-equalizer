@@ -1,0 +1,26 @@
+# Ambiente virtual
+audio_equalizer/
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# VS Code
+.vscode/
+
+# Arquivos de áudio temporários/filtrados (se não quiser commitá-los)
+*_filtered_*.wav
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de ambiente
+.env
+.venv
+env/
+venv/
+ENV/
+
