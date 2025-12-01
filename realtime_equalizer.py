@@ -9,9 +9,7 @@ import pyaudio
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-from scipy import signal
-from collections import deque
+from tkinter import messagebox, filedialog
 from equalizer import create_frequency_filter, calculate_cutoff_frequencies
 import librosa
 import os
