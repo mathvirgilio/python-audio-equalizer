@@ -1,16 +1,20 @@
 """
 Equalizador em Tempo Real com Interface Gráfica
 Processa áudio em tempo real aplicando filtros de 5 bandas com ganhos ajustáveis em dB.
+Suporta entrada de microfone ou arquivo de áudio.
 """
 
 import numpy as np
 import pyaudio
 import threading
+import time
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from scipy import signal
 from collections import deque
 from equalizer import create_frequency_filter
+import librosa
+import os
 
 
 class RealTimeEqualizer:
@@ -169,41 +173,72 @@ class RealTimeEqualizer:
         
         return output.astype(np.float32)
     
-    def start_processing(self, input_device=None, output_device=None):
+    def start_processing(self, input_device=None, output_device=None, audio_file=None):
         """
         Inicia o processamento em tempo real.
         
         Args:
-            input_device: Índice do dispositivo de entrada (None = padrão)
+            input_device: Índice do dispositivo de entrada (None = padrão, ignorado se audio_file fornecido)
             output_device: Índice do dispositivo de saída (None = padrão)
+            audio_file: Caminho do arquivo de áudio para reproduzir (None = usa microfone)
         """
         if self.is_processing:
             return
         
         self.is_processing = True
+        self.audio_file = audio_file
+        self.audio_data = None
+        self.audio_index = 0
+        self.audio_lock = threading.Lock()
+        
+        # Se um arquivo foi fornecido, carrega o áudio
+        if audio_file:
+            try:
+                print(f"Carregando arquivo: {audio_file}")
+                self.audio_data, file_sr = librosa.load(audio_file, sr=None, mono=True)
+                
+                # Se a taxa de amostragem for diferente, resampleia
+                if file_sr != self.sample_rate:
+                    print(f"Resampleando de {file_sr} Hz para {self.sample_rate} Hz")
+                    self.audio_data = librosa.resample(self.audio_data, orig_sr=file_sr, target_sr=self.sample_rate)
+                
+                self.audio_index = 0
+                print(f"Áudio carregado: {len(self.audio_data) / self.sample_rate:.2f} segundos")
+            except Exception as e:
+                print(f"Erro ao carregar arquivo: {e}")
+                self.is_processing = False
+                raise
         
         # Inicializa PyAudio
         self.p = pyaudio.PyAudio()
         
         # Abre stream de áudio
+        # Se usar arquivo, não precisa de input
         self.audio_stream = self.p.open(
             format=pyaudio.paFloat32,
             channels=1,  # Mono
             rate=self.sample_rate,
-            input=True,
+            input=audio_file is None,  # Só usa input se não houver arquivo
             output=True,
             frames_per_buffer=self.chunk_size,
-            input_device_index=input_device,
+            input_device_index=input_device if audio_file is None else None,
             output_device_index=output_device,
-            stream_callback=self._audio_callback
+            stream_callback=self._audio_callback if audio_file is None else None
         )
         
+        # Inicia o stream
         self.audio_stream.start_stream()
+        
+        if audio_file:
+            # Para arquivo, usa thread separada para alimentar o stream
+            self.playback_thread = threading.Thread(target=self._playback_loop, daemon=True)
+            self.playback_thread.start()
+        
         print("Processamento em tempo real iniciado")
     
     def _audio_callback(self, in_data, frame_count, time_info, status):
         """
-        Callback chamado pelo PyAudio para cada bloco de áudio.
+        Callback chamado pelo PyAudio para cada bloco de áudio (apenas para microfone).
         """
         if not self.is_processing:
             return (None, pyaudio.paComplete)
@@ -218,6 +253,40 @@ class RealTimeEqualizer:
         output_data = processed_audio.tobytes()
         
         return (output_data, pyaudio.paContinue)
+    
+    def _playback_loop(self):
+        """
+        Loop de reprodução para arquivo de áudio (executado em thread separada).
+        """
+        try:
+            while self.is_processing and self.audio_data is not None:
+                with self.audio_lock:
+                    # Pega um chunk do áudio
+                    chunk_end = min(self.audio_index + self.chunk_size, len(self.audio_data))
+                    audio_chunk = self.audio_data[self.audio_index:chunk_end]
+                    
+                    # Se o chunk for menor que chunk_size, preenche com zeros ou reinicia
+                    if len(audio_chunk) < self.chunk_size:
+                        padded_chunk = np.zeros(self.chunk_size, dtype=np.float32)
+                        padded_chunk[:len(audio_chunk)] = audio_chunk
+                        audio_chunk = padded_chunk
+                        # Reinicia o áudio quando chegar ao fim
+                        self.audio_index = 0
+                    else:
+                        self.audio_index = chunk_end
+                
+                # Processa o chunk com o equalizador
+                processed_chunk = self.process_chunk(audio_chunk.astype(np.float32))
+                
+                # Escreve no stream de saída
+                self.audio_stream.write(processed_chunk.tobytes())
+                
+                # Pequeno delay para evitar buffer underrun
+                time.sleep(0.001)
+                
+        except Exception as e:
+            print(f"Erro no loop de reprodução: {e}")
+            self.is_processing = False
     
     def stop_processing(self):
         """Para o processamento em tempo real."""
@@ -235,6 +304,12 @@ class RealTimeEqualizer:
         
         print("Processamento em tempo real parado")
     
+    def restart_audio(self):
+        """Reinicia a reprodução do áudio do início."""
+        if self.audio_data is not None:
+            with self.audio_lock:
+                self.audio_index = 0
+    
     def get_band_info(self):
         """
         Retorna informações sobre as bandas.
@@ -251,10 +326,10 @@ class EqualizerGUI:
     Interface gráfica para o equalizador em tempo real.
     """
     
-    def __init__(self):
+    def __init__(self, audio_file=None):
         self.root = tk.Tk()
         self.root.title("Equalizador em Tempo Real - 5 Bandas")
-        self.root.geometry("600x500")
+        self.root.geometry("700x600")
         
         # Cria o equalizador
         self.equalizer = RealTimeEqualizer(sample_rate=44100, chunk_size=1024)
@@ -263,12 +338,15 @@ class EqualizerGUI:
         self.slider_vars = []
         self.sliders = []
         
+        # Arquivo de áudio
+        self.audio_file = audio_file
+        
         # Cria a interface
         self._create_ui()
         
         # Inicia o processamento
         try:
-            self.equalizer.start_processing()
+            self.equalizer.start_processing(audio_file=self.audio_file)
         except Exception as e:
             print(f"Erro ao iniciar processamento: {e}")
             tk.messagebox.showerror("Erro", f"Não foi possível iniciar o processamento de áudio:\n{e}")
@@ -291,6 +369,42 @@ class EqualizerGUI:
             pady=5
         )
         subtitle_label.pack()
+        
+        # Frame para seleção de arquivo
+        file_frame = tk.Frame(self.root, pady=5)
+        file_frame.pack()
+        
+        # Label do arquivo (será atualizado)
+        self.file_label = tk.Label(
+            file_frame,
+            text=f"Arquivo: {os.path.basename(self.audio_file)}" if self.audio_file else "Entrada: Microfone",
+            font=("Arial", 9),
+            fg="blue" if self.audio_file else "green"
+        )
+        self.file_label.pack(side=tk.LEFT, padx=5)
+        
+        # Botão de reiniciar (só aparece se houver arquivo)
+        self.restart_button = None
+        if self.audio_file:
+            self.restart_button = tk.Button(
+                file_frame,
+                text="Reiniciar",
+                command=self._restart_audio,
+                font=("Arial", 8),
+                padx=5,
+                pady=2
+            )
+            self.restart_button.pack(side=tk.LEFT, padx=5)
+        
+        load_button = tk.Button(
+            file_frame,
+            text="Carregar Arquivo",
+            command=self._load_audio_file,
+            font=("Arial", 8),
+            padx=5,
+            pady=2
+        )
+        load_button.pack(side=tk.LEFT, padx=5)
         
         # Frame para os sliders
         sliders_frame = tk.Frame(self.root, padx=20, pady=20)
@@ -389,6 +503,50 @@ class EqualizerGUI:
         for i in range(len(self.equalizer.center_frequencies)):
             self.equalizer.set_band_gain_db(i, 0.0)
     
+    def _load_audio_file(self):
+        """Carrega um novo arquivo de áudio."""
+        filename = filedialog.askopenfilename(
+            title="Selecionar arquivo de áudio",
+            filetypes=[
+                ("Arquivos de áudio", "*.mp3 *.wav *.flac *.ogg *.m4a"),
+                ("Todos os arquivos", "*.*")
+            ]
+        )
+        
+        if filename:
+            # Para o processamento atual
+            self.equalizer.stop_processing()
+            
+            # Atualiza o arquivo
+            self.audio_file = filename
+            
+            # Reinicia com o novo arquivo
+            try:
+                self.equalizer.start_processing(audio_file=self.audio_file)
+                # Atualiza o label do arquivo
+                self.file_label.config(
+                    text=f"Arquivo: {os.path.basename(self.audio_file)}",
+                    fg="blue"
+                )
+                # Adiciona botão de reiniciar se não existir
+                if self.restart_button is None:
+                    self.restart_button = tk.Button(
+                        self.file_label.master,
+                        text="Reiniciar",
+                        command=self._restart_audio,
+                        font=("Arial", 8),
+                        padx=5,
+                        pady=2
+                    )
+                    self.restart_button.pack(side=tk.LEFT, padx=5, before=self.file_label.master.winfo_children()[-1])
+            except Exception as e:
+                tk.messagebox.showerror("Erro", f"Erro ao carregar arquivo:\n{e}")
+    
+    def _restart_audio(self):
+        """Reinicia a reprodução do áudio do início."""
+        if self.audio_file:
+            self.equalizer.restart_audio()
+    
     def _on_closing(self):
         """Handler para fechar a janela."""
         self.equalizer.stop_processing()
@@ -401,6 +559,8 @@ class EqualizerGUI:
 
 def main():
     """Função principal."""
+    import sys
+    
     print("=" * 60)
     print("Equalizador em Tempo Real - 5 Bandas")
     print("=" * 60)
@@ -415,9 +575,29 @@ def main():
     print("  +dB = amplificação")
     print("  -dB = atenuação")
     print("=" * 60)
+    
+    # Verifica se um arquivo foi passado como argumento
+    audio_file = None
+    if len(sys.argv) > 1:
+        audio_file = sys.argv[1]
+        if not os.path.exists(audio_file):
+            print(f"\nAviso: Arquivo '{audio_file}' não encontrado. Usando microfone.")
+            audio_file = None
+        else:
+            print(f"\nUsando arquivo: {audio_file}")
+    else:
+        # Tenta usar o arquivo padrão
+        default_file = "The Cure - In Between Days.mp3"
+        if os.path.exists(default_file):
+            audio_file = default_file
+            print(f"\nUsando arquivo padrão: {audio_file}")
+        else:
+            print("\nNenhum arquivo especificado. Usando microfone.")
+            print("Para usar um arquivo, execute: python realtime_equalizer.py <arquivo>")
+    
     print("\nIniciando interface gráfica...")
     
-    app = EqualizerGUI()
+    app = EqualizerGUI(audio_file=audio_file)
     app.run()
 
 
