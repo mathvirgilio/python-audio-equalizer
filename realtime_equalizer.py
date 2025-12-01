@@ -41,7 +41,10 @@ class RealTimeEqualizer:
         self.gains_db = [0.0] * len(self.center_frequencies)
         
         # Largura de banda de cada filtro (Hz)
-        self.bandwidth = 50
+        # Usa largura de banda proporcional para melhor cobertura
+        # Para cada frequência, usa aproximadamente 2/3 de oitava para efeitos mais perceptíveis
+        # Isso garante que cada banda tenha uma cobertura adequada
+        self.bandwidth_factor = 0.6  # Fator para calcular largura de banda proporcional (maior = mais larga)
         
         # Forma do filtro ('gaussian' ou 'rectangular')
         self.filter_shape = 'gaussian'
@@ -66,16 +69,25 @@ class RealTimeEqualizer:
         """
         Pré-calcula os filtros passa-banda no domínio da frequência usando create_frequency_filter.
         Usa a mesma função do equalizer.py, como em multi_band_equalizer.py.
+        Usa largura de banda proporcional para cada frequência.
         """
         self.band_filters_fft = []
+        self.bandwidths = []  # Armazena a largura de banda de cada filtro
         
         for center_freq in self.center_frequencies:
+            # Calcula largura de banda proporcional (aproximadamente 1/3 de oitava)
+            # bandwidth = center_freq * 2^(1/6) - center_freq * 2^(-1/6) ≈ center_freq * 0.23
+            bandwidth = center_freq * self.bandwidth_factor
+            # Garante largura mínima de 20 Hz e máxima de 2000 Hz
+            bandwidth = max(20.0, min(bandwidth, 2000.0))
+            self.bandwidths.append(bandwidth)
+            
             # Usa create_frequency_filter do equalizer.py
             filter_response = create_frequency_filter(
                 self.fft_size, 
                 self.sample_rate, 
                 center_freq, 
-                self.bandwidth, 
+                bandwidth, 
                 self.filter_shape
             )
             
@@ -84,6 +96,7 @@ class RealTimeEqualizer:
         
         print(f"Filtros pré-calculados para {len(self.center_frequencies)} bandas")
         print(f"Frequências: {self.center_frequencies} Hz")
+        print(f"Larguras de banda: {[f'{b:.1f}' for b in self.bandwidths]} Hz")
         print(f"Usando create_frequency_filter do equalizer.py (FFT size: {self.fft_size})")
     
     def set_band_gain_db(self, band_index, gain_db):
@@ -138,23 +151,47 @@ class RealTimeEqualizer:
         self.input_buffer[:-self.hop_size] = self.input_buffer[self.hop_size:]
         self.input_buffer[-self.hop_size:] = audio_chunk
         
-        # Cria o filtro combinado no domínio da frequência
-        # Similar ao multi_band_equalizer.py: h[n] = sum_{i=1}^{5} A_i * h_i[n]
-        combined_filter = np.zeros(self.fft_size, dtype=np.complex128)
+        # Cria o filtro combinado usando abordagem paramétrica
+        # Quando gain_db = 0, o filtro não altera o sinal (resposta = 1.0)
+        # Quando gain_db > 0, amplifica aquela banda
+        # Quando gain_db < 0, atenua aquela banda
+        # O filtro é real (não complexo) pois os filtros de frequência são reais
+        combined_filter = np.ones(self.fft_size, dtype=np.float64)
         
         for i, filter_response in enumerate(self.band_filters_fft):
             # Converte ganho em dB para amplificação linear: A_i = 10^(AdB/20)
-            gain_linear = self._db_to_linear(self.gains_db[i])
+            gain_db = self.gains_db[i]
             
-            # Adiciona ao filtro combinado: A_i * h_i[n]
-            combined_filter += gain_linear * filter_response
+            # Se o ganho for 0 dB, não altera nada (pula esta banda)
+            if abs(gain_db) < 0.001:  # Praticamente zero
+                continue
+            
+            gain_linear = self._db_to_linear(gain_db)
+            
+            # Aplica o ganho usando abordagem paramétrica
+            # Para boost: adiciona o sinal filtrado amplificado
+            # Para cut: reduz o sinal filtrado
+            # Quando gain_db é muito negativo (ex: -30 dB), gain_linear ≈ 0.032
+            # Isso resulta em atenuação de ~97%, tornando a banda praticamente inaudível
+            if gain_db > 0:
+                # Boost: eq_response = 1.0 + filter_response * (gain_linear - 1.0)
+                combined_filter += filter_response * (gain_linear - 1.0)
+            else:
+                # Cut: eq_response = 1.0 - filter_response * (1.0 - gain_linear)
+                # Para valores muito negativos, isso resulta em atenuação quase total
+                combined_filter -= filter_response * (1.0 - gain_linear)
         
         # Converte o sinal do buffer para o domínio da frequência
         audio_fft = np.fft.fft(self.input_buffer)
         
         # Aplica o filtro combinado: Y[k] = X[k] * H[k]
-        # onde H[k] = sum_{i=1}^{5} A_i * H_i[k]
+        # onde H[k] é o filtro paramétrico combinado
+        # Multiplica elemento por elemento (NumPy faz casting automático de real para complex)
         filtered_fft = audio_fft * combined_filter
+        
+        # Debug: mostra estatísticas do filtro (apenas ocasionalmente para não poluir o console)
+        if np.random.random() < 0.01:  # 1% das vezes
+            print(f"Filtro - Min: {np.min(combined_filter):.3f}, Max: {np.max(combined_filter):.3f}, Mean: {np.mean(combined_filter):.3f}")
         
         # Converte de volta para o domínio do tempo
         filtered_audio = np.real(np.fft.ifft(filtered_fft))
@@ -426,15 +463,16 @@ class EqualizerGUI:
             )
             freq_label.pack()
             
-            # Variável do slider (em dB, de -12 a +12)
+            # Variável do slider (em dB, de -30 a +12)
+            # -30 dB resulta em atenuação de ~97% (praticamente inaudível)
             var = tk.DoubleVar(value=0.0)
             self.slider_vars.append(var)
             
             # Slider vertical
             slider = tk.Scale(
                 band_frame,
-                from_=12,  # +12 dB
-                to=-12,    # -12 dB
+                from_=12,  # +12 dB (amplificação)
+                to=-30,    # -30 dB (praticamente inaudível)
                 resolution=0.5,  # Passo de 0.5 dB
                 orient=tk.VERTICAL,
                 length=300,
@@ -488,6 +526,8 @@ class EqualizerGUI:
     def _on_slider_change(self, band_index, gain_db):
         """Callback quando um slider é movido."""
         self.equalizer.set_band_gain_db(band_index, gain_db)
+        # Debug: mostra os ganhos atuais
+        print(f"Ganhos atualizados: {[f'{g:.1f}' for g in self.equalizer.gains_db]} dB")
     
     def _update_value_label(self, band_index, label):
         """Atualiza o label do valor do slider."""
