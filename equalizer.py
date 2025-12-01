@@ -5,7 +5,47 @@ import argparse
 import os
 
 
-def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50, filter_shape='gaussian'):
+def calculate_cutoff_frequencies(center_frequencies, sample_rate):
+    """
+    Calcula as frequências de corte que ficam no meio entre as frequências centrais das bandas.
+    Conforme especificação: "As frequências de corte dos filtros devem estar no meio 
+    entre as frequências centrais das bandas."
+    
+    Args:
+        center_frequencies: Lista com as frequências centrais das bandas (Hz)
+        sample_rate: Taxa de amostragem (Hz)
+    
+    Returns:
+        Lista de tuplas (low_cutoff, high_cutoff) para cada banda
+    """
+    cutoff_freqs = []
+    n_bands = len(center_frequencies)
+    
+    for i in range(n_bands):
+        # Calcula a frequência de corte inferior
+        if i == 0:
+            # Primeira banda: corte inferior é 0 Hz ou ponto médio entre 0 e a primeira frequência central
+            # Usamos um valor baixo (ex: 50 Hz) ou podemos usar 0
+            low_cutoff = 0.0
+        else:
+            # Ponto médio entre a frequência central anterior e a atual
+            low_cutoff = (center_frequencies[i-1] + center_frequencies[i]) / 2.0
+        
+        # Calcula a frequência de corte superior
+        if i == n_bands - 1:
+            # Última banda: corte superior é a frequência de Nyquist
+            high_cutoff = sample_rate / 2.0
+        else:
+            # Ponto médio entre a frequência central atual e a próxima
+            high_cutoff = (center_frequencies[i] + center_frequencies[i+1]) / 2.0
+        
+        cutoff_freqs.append((low_cutoff, high_cutoff))
+    
+    return cutoff_freqs
+
+
+def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50, 
+                           low_cutoff=None, high_cutoff=None, filter_shape='gaussian'):
     """
     Cria um filtro passa-banda no domínio da frequência.
     
@@ -13,7 +53,9 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50, f
         n_samples: Número de amostras do sinal
         sample_rate: Taxa de amostragem (Hz)
         center_freq: Frequência central do filtro (Hz)
-        bandwidth: Largura de banda do filtro (Hz)
+        bandwidth: Largura de banda do filtro (Hz) - usado apenas se low_cutoff/high_cutoff não fornecidos
+        low_cutoff: Frequência de corte inferior (Hz) - se None, calcula a partir de bandwidth
+        high_cutoff: Frequência de corte superior (Hz) - se None, calcula a partir de bandwidth
         filter_shape: Forma do filtro ('gaussian' ou 'rectangular')
     
     Returns:
@@ -24,14 +66,42 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50, f
     freqs = np.abs(freqs)  # Apenas valores positivos
     
     # Calcula as frequências de corte
-    low_freq = max(0, center_freq - bandwidth / 2)
-    high_freq = min(sample_rate / 2, center_freq + bandwidth / 2)
+    if low_cutoff is not None and high_cutoff is not None:
+        # Usa as frequências de corte fornecidas
+        low_freq = max(0, low_cutoff)
+        high_freq = min(sample_rate / 2, high_cutoff)
+        # Calcula bandwidth efetivo para filtro gaussiano
+        effective_bandwidth = high_freq - low_freq
+    else:
+        # Usa o método antigo baseado em bandwidth
+        low_freq = max(0, center_freq - bandwidth / 2)
+        high_freq = min(sample_rate / 2, center_freq + bandwidth / 2)
+        effective_bandwidth = bandwidth
     
     if filter_shape == 'gaussian':
         # Filtro gaussiano (transições suaves)
-        # Usa desvio padrão baseado na largura de banda
-        sigma = bandwidth / (2 * np.sqrt(2 * np.log(2)))  # FWHM = 2.355 * sigma
+        # Para filtros com frequências de corte específicas, ajusta o sigma para que
+        # o filtro tenha transição suave entre low_freq e high_freq
+        # Usa desvio padrão baseado na largura de banda efetiva
+        sigma = effective_bandwidth / (2 * np.sqrt(2 * np.log(2)))  # FWHM = 2.355 * sigma
         filter_response = np.exp(-0.5 * ((freqs - center_freq) / sigma) ** 2)
+        
+        # Aplica uma janela para garantir que o filtro seja zero fora do intervalo [low_freq, high_freq]
+        # Isso garante que as frequências de corte sejam respeitadas
+        window = np.ones_like(freqs)
+        window[freqs < low_freq] = 0.0
+        window[freqs > high_freq] = 0.0
+        # Transição suave nas bordas (opcional, pode ser removido para transição mais abrupta)
+        transition_width = effective_bandwidth * 0.1  # 10% da largura de banda para transição
+        if transition_width > 0:
+            # Transição suave na borda inferior
+            transition_low = (freqs >= low_freq) & (freqs < low_freq + transition_width)
+            window[transition_low] = (freqs[transition_low] - low_freq) / transition_width
+            # Transição suave na borda superior
+            transition_high = (freqs > high_freq - transition_width) & (freqs <= high_freq)
+            window[transition_high] = (high_freq - freqs[transition_high]) / transition_width
+        
+        filter_response *= window
     else:
         # Filtro retangular (transições abruptas)
         filter_response = np.zeros_like(freqs)

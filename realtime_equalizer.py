@@ -12,7 +12,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from scipy import signal
 from collections import deque
-from equalizer import create_frequency_filter
+from equalizer import create_frequency_filter, calculate_cutoff_frequencies
 import librosa
 import os
 
@@ -68,35 +68,43 @@ class RealTimeEqualizer:
     def _precompute_filters(self):
         """
         Pré-calcula os filtros passa-banda no domínio da frequência usando create_frequency_filter.
-        Usa a mesma função do equalizer.py, como em multi_band_equalizer.py.
-        Usa largura de banda proporcional para cada frequência.
+        As frequências de corte são calculadas no meio entre as frequências centrais das bandas,
+        conforme especificação do projeto.
         """
         self.band_filters_fft = []
         self.bandwidths = []  # Armazena a largura de banda de cada filtro
+        self.cutoff_frequencies = []  # Armazena as frequências de corte
         
-        for center_freq in self.center_frequencies:
-            # Calcula largura de banda proporcional (aproximadamente 1/3 de oitava)
-            # bandwidth = center_freq * 2^(1/6) - center_freq * 2^(-1/6) ≈ center_freq * 0.23
-            bandwidth = center_freq * self.bandwidth_factor
-            # Garante largura mínima de 20 Hz e máxima de 2000 Hz
-            bandwidth = max(20.0, min(bandwidth, 2000.0))
+        # Calcula as frequências de corte que ficam no meio entre as frequências centrais
+        cutoff_freqs = calculate_cutoff_frequencies(self.center_frequencies, self.sample_rate)
+        
+        for i, center_freq in enumerate(self.center_frequencies):
+            low_cutoff, high_cutoff = cutoff_freqs[i]
+            self.cutoff_frequencies.append((low_cutoff, high_cutoff))
+            
+            # Calcula largura de banda efetiva
+            bandwidth = high_cutoff - low_cutoff
             self.bandwidths.append(bandwidth)
             
-            # Usa create_frequency_filter do equalizer.py
+            # Usa create_frequency_filter do equalizer.py com frequências de corte específicas
             filter_response = create_frequency_filter(
                 self.fft_size, 
                 self.sample_rate, 
                 center_freq, 
-                bandwidth, 
-                self.filter_shape
+                bandwidth=bandwidth,  # Mantido para compatibilidade
+                low_cutoff=low_cutoff,
+                high_cutoff=high_cutoff,
+                filter_shape=self.filter_shape
             )
             
             # Armazena o filtro no domínio da frequência
             self.band_filters_fft.append(filter_response)
         
         print(f"Filtros pré-calculados para {len(self.center_frequencies)} bandas")
-        print(f"Frequências: {self.center_frequencies} Hz")
-        print(f"Larguras de banda: {[f'{b:.1f}' for b in self.bandwidths]} Hz")
+        print(f"Frequências centrais: {self.center_frequencies} Hz")
+        print(f"Frequências de corte (low, high):")
+        for i, (low, high) in enumerate(self.cutoff_frequencies):
+            print(f"  Banda {i+1} ({self.center_frequencies[i]} Hz): {low:.1f} - {high:.1f} Hz")
         print(f"Usando create_frequency_filter do equalizer.py (FFT size: {self.fft_size})")
     
     def set_band_gain_db(self, band_index, gain_db):

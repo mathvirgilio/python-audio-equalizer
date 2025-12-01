@@ -2,7 +2,7 @@ import numpy as np
 import librosa
 import soundfile as sf
 import os
-from equalizer import create_frequency_filter
+from equalizer import create_frequency_filter, calculate_cutoff_frequencies
 
 
 class MultiBandEqualizer:
@@ -62,6 +62,8 @@ class MultiBandEqualizer:
     def _create_combined_filter(self, n_samples, sample_rate):
         """
         Cria o filtro combinado h[n] = sum_{i=1}^{5} A_i * h_i[n] no domínio da frequência.
+        As frequências de corte são calculadas no meio entre as frequências centrais das bandas,
+        conforme especificação do projeto.
         
         Args:
             n_samples: Número de amostras do sinal
@@ -74,14 +76,27 @@ class MultiBandEqualizer:
         # 50 = 1.0 (sem alteração), 0 = 0.0 (atenuação total), 100 = 2.0 (amplificação máxima)
         normalized_factors = [factor / 50.0 for factor in self.amplification_factors]
         
+        # Calcula as frequências de corte que ficam no meio entre as frequências centrais
+        cutoff_freqs = calculate_cutoff_frequencies(self.center_frequencies, sample_rate)
+        
         # Inicializa o filtro combinado
         combined_filter = np.zeros(n_samples, dtype=np.complex128)
         
         # Para cada banda, cria o filtro e adiciona ao filtro combinado
         for i, center_freq in enumerate(self.center_frequencies):
-            # Cria o filtro passa-banda para esta frequência
-            h_i = create_frequency_filter(n_samples, sample_rate, center_freq, 
-                                         self.bandwidth, self.filter_shape)
+            low_cutoff, high_cutoff = cutoff_freqs[i]
+            bandwidth = high_cutoff - low_cutoff
+            
+            # Cria o filtro passa-banda para esta frequência com frequências de corte específicas
+            h_i = create_frequency_filter(
+                n_samples, 
+                sample_rate, 
+                center_freq, 
+                bandwidth=bandwidth,
+                low_cutoff=low_cutoff,
+                high_cutoff=high_cutoff,
+                filter_shape=self.filter_shape
+            )
             
             # Adiciona ao filtro combinado multiplicado pelo fator A_i
             combined_filter += normalized_factors[i] * h_i
