@@ -17,7 +17,7 @@ pip install -r requirements.txt
 Para filtrar o arquivo MP3 com um filtro centrado em 100 Hz:
 
 ```bash
-python equalizer.py "The Cure - In Between Days.mp3" -f 100
+python equalizer.py "tracks/The Cure - In Between Days.mp3" -f 100
 ```
 
 Ou simplesmente execute sem argumentos (usa o arquivo padrão):
@@ -25,6 +25,36 @@ Ou simplesmente execute sem argumentos (usa o arquivo padrão):
 ```bash
 python equalizer.py
 ```
+
+### Usando Outras Músicas
+
+Para usar suas próprias músicas com o equalizador, siga estes passos:
+
+1. **Adicione sua música à pasta `tracks`**:
+   - Coloque seu arquivo de áudio (MP3, WAV, FLAC, etc.) na pasta `tracks/`
+   - Exemplo: `tracks/MinhaMusica.mp3`
+
+2. **Use o equalizador com sua música**:
+   
+   **Opção A - Especificando o caminho completo:**
+   ```bash
+   python equalizer.py "tracks/MinhaMusica.mp3" -f 100
+   ```
+   
+   **Opção B - Usando o equalizador em tempo real:**
+   ```bash
+   python realtime_equalizer.py "tracks/MinhaMusica.mp3"
+   ```
+   
+   **Opção C - Carregando pela interface gráfica:**
+   - Execute `python realtime_equalizer.py`
+   - Clique no botão "Carregar Arquivo" na interface
+   - Selecione sua música da pasta `tracks/`
+
+3. **Formatos suportados**:
+   - MP3, WAV, FLAC, OGG, M4A e outros formatos suportados pelo librosa
+
+**Dica:** Se você quiser que sua música seja o arquivo padrão, edite os arquivos `equalizer.py` ou `realtime_equalizer.py` e altere o caminho na variável `default_file`.
 
 ### Exemplo Simples
 

@@ -301,7 +301,7 @@ if __name__ == '__main__':
     # Se executado sem argumentos, usa o arquivo padrão
     import sys
     if len(sys.argv) == 1:
-        default_file = "The Cure - In Between Days.mp3"
+        default_file = "tracks/The Cure - In Between Days.mp3"
         if os.path.exists(default_file):
             print("Executando com arquivo padrão...")
             process_audio(default_file, center_freq=100, bandwidth=50)

@@ -633,7 +633,7 @@ def main():
             print(f"\nUsando arquivo: {audio_file}")
     else:
         # Tenta usar o arquivo padrão
-        default_file = "The Cure - In Between Days.mp3"
+        default_file = "tracks/The Cure - In Between Days.mp3"
         if os.path.exists(default_file):
             audio_file = default_file
             print(f"\nUsando arquivo padrão: {audio_file}")
