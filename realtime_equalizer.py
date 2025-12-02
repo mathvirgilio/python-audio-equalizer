@@ -11,6 +11,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from equalizer import create_frequency_filter, calculate_cutoff_frequencies
+from spectrum_analyzer import SpectrumAnalyzer
 import librosa
 import os
 
@@ -62,6 +63,10 @@ class RealTimeEqualizer:
         # Estado do processamento
         self.is_processing = False
         self.audio_stream = None
+        
+        # Buffer para análise de espectro (último chunk processado)
+        self.last_processed_chunk = None
+        self.spectrum_lock = threading.Lock()
         
     def _precompute_filters(self):
         """
@@ -214,6 +219,10 @@ class RealTimeEqualizer:
         if max_val > 1.0:
             output = output / max_val
         
+        # Armazena o chunk processado para análise de espectro
+        with self.spectrum_lock:
+            self.last_processed_chunk = output.copy()
+        
         return output.astype(np.float32)
     
     def start_processing(self, input_device=None, output_device=None, audio_file=None):
@@ -362,6 +371,18 @@ class RealTimeEqualizer:
         """
         return [(freq, gain) for freq, gain in 
                 zip(self.center_frequencies, self.gains_db)]
+    
+    def get_last_processed_chunk(self):
+        """
+        Retorna o último chunk processado para análise de espectro.
+        
+        Returns:
+            Array numpy com o último chunk processado ou None
+        """
+        with self.spectrum_lock:
+            if self.last_processed_chunk is not None:
+                return self.last_processed_chunk.copy()
+        return None
 
 
 class EqualizerGUI:
@@ -372,10 +393,13 @@ class EqualizerGUI:
     def __init__(self, audio_file=None):
         self.root = tk.Tk()
         self.root.title("Equalizador em Tempo Real - 5 Bandas")
-        self.root.geometry("700x600")
+        self.root.geometry("800x750")
         
         # Cria o equalizador
         self.equalizer = RealTimeEqualizer(sample_rate=44100, chunk_size=1024)
+        
+        # Cria o analisador de espectro
+        self.spectrum_analyzer = SpectrumAnalyzer(sample_rate=44100, n_bands=10)
         
         # Variáveis para os sliders (em dB)
         self.slider_vars = []
@@ -393,6 +417,9 @@ class EqualizerGUI:
         except Exception as e:
             print(f"Erro ao iniciar processamento: {e}")
             tk.messagebox.showerror("Erro", f"Não foi possível iniciar o processamento de áudio:\n{e}")
+        
+        # Inicia a atualização do analisador de espectro
+        self._update_spectrum()
     
     def _create_ui(self):
         """Cria a interface gráfica."""
@@ -526,6 +553,32 @@ class EqualizerGUI:
         )
         self.status_label.pack(side=tk.LEFT, padx=10)
         
+        # Frame para o analisador de espectro
+        spectrum_frame = tk.Frame(self.root, bg="black", padx=10, pady=10)
+        spectrum_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Título do analisador
+        spectrum_title = tk.Label(
+            spectrum_frame,
+            text="Analisador de Espectro - 10 Bandas",
+            font=("Arial", 11, "bold"),
+            bg="black",
+            fg="white"
+        )
+        spectrum_title.pack(pady=(0, 5))
+        
+        # Canvas para desenhar as barras do espectro
+        self.spectrum_canvas = tk.Canvas(
+            spectrum_frame,
+            bg="black",
+            height=200,
+            highlightthickness=0
+        )
+        self.spectrum_canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Bind para redimensionamento do canvas
+        self.spectrum_canvas.bind('<Configure>', lambda e: self._on_canvas_resize())
+        
         # Handler para fechar a janela
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
     
@@ -592,6 +645,114 @@ class EqualizerGUI:
         """Reinicia a reprodução do áudio do início."""
         if self.audio_file:
             self.equalizer.restart_audio()
+    
+    def _update_spectrum(self):
+        """Atualiza o analisador de espectro em tempo real."""
+        # Obtém o último chunk processado
+        processed_chunk = self.equalizer.get_last_processed_chunk()
+        
+        if processed_chunk is not None:
+            # Analisa o chunk
+            band_levels, band_peaks = self.spectrum_analyzer.analyze(processed_chunk)
+            
+            # Desenha as barras no canvas
+            self._draw_spectrum_bars(band_levels, band_peaks)
+        
+        # Agenda a próxima atualização (aproximadamente 30 FPS)
+        self.root.after(33, self._update_spectrum)
+    
+    def _on_canvas_resize(self):
+        """Callback quando o canvas é redimensionado."""
+        # Força uma atualização imediata do espectro
+        pass
+    
+    def _draw_spectrum_bars(self, band_levels, band_peaks):
+        """
+        Desenha as barras do analisador de espectro.
+        
+        Args:
+            band_levels: Array com os níveis normalizados (0-1) de cada banda
+            band_peaks: Array com os picos normalizados (0-1) de cada banda
+        """
+        # Limpa o canvas
+        self.spectrum_canvas.delete("all")
+        
+        # Obtém as dimensões do canvas
+        canvas_width = self.spectrum_canvas.winfo_width()
+        canvas_height = self.spectrum_canvas.winfo_height()
+        
+        # Se o canvas ainda não foi renderizado, usa valores padrão
+        if canvas_width <= 1:
+            canvas_width = 700
+        if canvas_height <= 1:
+            canvas_height = 200
+        
+        # Parâmetros de desenho
+        n_bands = len(band_levels)
+        bar_width = (canvas_width - 20) / n_bands  # Espaço para margens
+        bar_spacing = bar_width * 0.1  # 10% de espaçamento entre barras
+        bar_width -= bar_spacing
+        max_bar_height = canvas_height - 40  # Espaço para labels
+        
+        # Desenha cada barra
+        for i, (level, peak) in enumerate(zip(band_levels, band_peaks)):
+            x = 10 + i * (bar_width + bar_spacing) + bar_spacing / 2
+            
+            # Altura da barra principal (verde)
+            bar_height = level * max_bar_height
+            
+            # Altura do pico (vermelho)
+            peak_height = peak * max_bar_height
+            
+            # Coordenadas da barra
+            y_bottom = canvas_height - 20
+            y_top = y_bottom - bar_height
+            
+            # Desenha a barra principal (verde)
+            if bar_height > 0:
+                self.spectrum_canvas.create_rectangle(
+                    x, y_top,
+                    x + bar_width, y_bottom,
+                    fill="#00FF00",  # Verde brilhante
+                    outline="#00AA00",
+                    width=1
+                )
+            
+            # Desenha o pico (vermelho) se for maior que a barra
+            if peak_height > bar_height and peak_height > 2:
+                peak_y = y_bottom - peak_height
+                self.spectrum_canvas.create_rectangle(
+                    x, peak_y - 2,
+                    x + bar_width, peak_y,
+                    fill="#FF0000",  # Vermelho
+                    outline="#AA0000",
+                    width=1
+                )
+            
+            # Desenha a frequência abaixo da barra
+            freq = self.spectrum_analyzer.band_centers[i]
+            if freq < 1000:
+                freq_label = f"{int(freq)}Hz"
+            else:
+                freq_label = f"{freq/1000:.1f}k"
+            
+            self.spectrum_canvas.create_text(
+                x + bar_width / 2,
+                canvas_height - 5,
+                text=freq_label,
+                fill="white",
+                font=("Arial", 7)
+            )
+        
+        # Desenha uma linha de referência no meio (opcional)
+        mid_y = canvas_height - 20 - max_bar_height / 2
+        self.spectrum_canvas.create_line(
+            5, mid_y,
+            canvas_width - 5, mid_y,
+            fill="#333333",
+            width=1,
+            dash=(2, 2)
+        )
     
     def _on_closing(self):
         """Handler para fechar a janela."""

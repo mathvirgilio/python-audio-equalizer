@@ -148,10 +148,15 @@ python realtime_equalizer.py
 ### Características do Equalizador em Tempo Real
 
 - **5 Bandas**: 100 Hz, 330 Hz, 1 kHz, 3.3 kHz, 10 kHz
-- **Ganho em dB**: Sliders de -12 dB a +12 dB
+- **Ganho em dB**: Sliders de -30 dB a +12 dB (passo de 0.5 dB)
 - **Processamento em tempo real**: Captura e reproduz áudio em tempo real
-- **Filtros pré-calculados**: Filtros passa-banda Butterworth otimizados
+- **Filtros pré-calculados**: Filtros passa-banda otimizados no domínio da frequência
 - **Conversão dB → Linear**: Usa a fórmula A = 10^(AdB/20)
+- **Analisador de Espectro de Barras**: Visualização em tempo real com 10 bandas
+  - Mostra o sinal resultante após o processamento do equalizador
+  - 10 bandas com distribuição logarítmica (20 Hz até Nyquist)
+  - Barras verdes para níveis atuais e indicadores vermelhos para picos
+  - Atualização em tempo real (~30 FPS)
 
 ### Equação Implementada
 
@@ -166,10 +171,24 @@ Onde:
 - `A_i = 10^(AdB/20)` é a amplificação linear calculada a partir do ganho em dB
 - `y[n]` é o sinal de saída equalizado
 
+### Analisador de Espectro de Barras
+
+O equalizador em tempo real inclui um analisador de espectro de barras com 10 bandas que visualiza o sinal resultante após o processamento:
+
+- **10 Bandas**: Distribuição logarítmica de ~20 Hz até a frequência de Nyquist
+- **Visualização em Tempo Real**: Atualização contínua (~30 FPS)
+- **Barras Verdes**: Representam os níveis atuais de cada banda
+- **Indicadores Vermelhos**: Mostram os picos de cada banda (com decaimento gradual)
+- **Fundo Preto**: Interface similar a analisadores profissionais
+- **Labels de Frequência**: Exibição das frequências centrais de cada banda
+
+O analisador calcula o espectro de frequência usando FFT com janela de Hamming para reduzir vazamento espectral, e aplica suavização para evitar flickering na visualização.
+
 ### Exemplo Programático
 
 ```python
 from realtime_equalizer import RealTimeEqualizer
+from spectrum_analyzer import SpectrumAnalyzer
 
 # Cria o equalizador
 eq = RealTimeEqualizer(sample_rate=44100, chunk_size=1024)
@@ -178,9 +197,19 @@ eq = RealTimeEqualizer(sample_rate=44100, chunk_size=1024)
 eq.set_band_gain_db(0, 6.0)   # 100 Hz: +6 dB
 eq.set_band_gain_db(2, -3.0)  # 1000 Hz: -3 dB
 
+# Cria o analisador de espectro
+analyzer = SpectrumAnalyzer(sample_rate=44100, n_bands=10)
+
 # Inicia processamento
 eq.start_processing()
 # ... processa áudio ...
+
+# Obtém o último chunk processado e analisa
+processed_chunk = eq.get_last_processed_chunk()
+if processed_chunk is not None:
+    band_levels, band_peaks = analyzer.analyze(processed_chunk)
+    # band_levels e band_peaks contêm os níveis normalizados (0-1) de cada banda
+
 eq.stop_processing()
 ```
 
@@ -193,4 +222,11 @@ eq.stop_processing()
 - `realtime_equalizer.py`: Equalizador em tempo real com interface gráfica
   - 5 bandas equalizáveis (100 Hz, 330 Hz, 1 kHz, 3.3 kHz, 10 kHz)
   - Interface gráfica com sliders para ajuste de ganho
+  - Suporta entrada de microfone ou arquivo de áudio
+  - Integração com analisador de espectro
+- `spectrum_analyzer.py`: Analisador de espectro de barras
+  - Classe `SpectrumAnalyzer` para análise de espectro em tempo real
+  - 10 bandas com distribuição logarítmica
+  - Cálculo de FFT com janela de Hamming
+  - Suavização de níveis e rastreamento de picos
 - `requirements.txt`: Dependências do projeto
