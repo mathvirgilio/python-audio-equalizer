@@ -44,6 +44,56 @@ def calculate_cutoff_frequencies(center_frequencies, sample_rate):
     return cutoff_freqs
 
 
+def create_bandpass_impulse_response(filter_length, sample_rate, low_cutoff, high_cutoff):
+    """
+    Cria a resposta ao impulso de um filtro passa-faixa usando a expressão matemática:
+    h[n] = (sin(ω_c2 n) - sin(ω_c1 n)) / (nπ) quando n ≠ 0
+    h[n] = (ω_c2 - ω_c1) / π quando n = 0
+    
+    Usando numpy.sinc para implementação eficiente.
+    
+    Args:
+        filter_length: Comprimento do filtro (número de taps, deve ser ímpar)
+        sample_rate: Taxa de amostragem (Hz)
+        low_cutoff: Frequência de corte inferior (Hz)
+        high_cutoff: Frequência de corte superior (Hz)
+    
+    Returns:
+        Array com a resposta ao impulso do filtro
+    """
+    # Garante que o comprimento seja ímpar
+    if filter_length % 2 == 0:
+        filter_length += 1
+    
+    # Converte frequências de Hz para radianos por amostra
+    omega_c1 = 2 * np.pi * low_cutoff / sample_rate
+    omega_c2 = 2 * np.pi * high_cutoff / sample_rate
+    
+    # Cria índices n centrados em zero: [-M, ..., -1, 0, 1, ..., M]
+    M = (filter_length - 1) // 2
+    n = np.arange(-M, M + 1, dtype=np.float64)
+    
+    # Inicializa a resposta ao impulso
+    h = np.zeros(filter_length, dtype=np.float64)
+    
+    # Caso n = 0
+    h[M] = (omega_c2 - omega_c1) / np.pi
+    
+    # Caso n ≠ 0: usa numpy.sinc
+    # sinc(x) = sin(πx) / (πx)
+    # sin(ω_c2 n) / (nπ) = (ω_c2 / π) * sinc(ω_c2 n / π)
+    # sin(ω_c1 n) / (nπ) = (ω_c1 / π) * sinc(ω_c1 n / π)
+    mask = n != 0
+    n_nonzero = n[mask]
+    
+    # Usa sinc para calcular sin(ω n) / (nπ)
+    # sin(ω n) / (nπ) = (ω / π) * sinc(ω n / π)
+    h[mask] = (omega_c2 / np.pi) * np.sinc(omega_c2 * n_nonzero / np.pi) - \
+              (omega_c1 / np.pi) * np.sinc(omega_c1 * n_nonzero / np.pi)
+    
+    return h
+
+
 def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50, 
                            low_cutoff=None, high_cutoff=None, filter_shape='gaussian'):
     """
@@ -56,7 +106,7 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50,
         bandwidth: Largura de banda do filtro (Hz) - usado apenas se low_cutoff/high_cutoff não fornecidos
         low_cutoff: Frequência de corte inferior (Hz) - se None, calcula a partir de bandwidth
         high_cutoff: Frequência de corte superior (Hz) - se None, calcula a partir de bandwidth
-        filter_shape: Forma do filtro ('gaussian' ou 'rectangular')
+        filter_shape: Forma do filtro ('gaussian', 'rectangular' ou 'sinc')
     
     Returns:
         Array com os valores do filtro no domínio da frequência
@@ -78,7 +128,42 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50,
         high_freq = min(sample_rate / 2, center_freq + bandwidth / 2)
         effective_bandwidth = bandwidth
     
-    if filter_shape == 'gaussian':
+    if filter_shape == 'sinc':
+        # Filtro passa-faixa usando resposta ao impulso com sinc
+        # Usa um comprimento de filtro baseado na resolução de frequência desejada
+        # Fórmula: filter_length ≈ 4 * sample_rate / bandwidth (regra de ouro)
+        filter_length = int(4 * sample_rate / max(effective_bandwidth, 1))
+        # Limita o comprimento para não ser muito grande
+        filter_length = min(filter_length, n_samples // 2)
+        # Garante que seja ímpar e pelo menos 3
+        if filter_length % 2 == 0:
+            filter_length += 1
+        filter_length = max(3, filter_length)
+        
+        # Cria a resposta ao impulso
+        h = create_bandpass_impulse_response(filter_length, sample_rate, low_freq, high_freq)
+        
+        # Aplica uma janela (Hamming) para reduzir ringing
+        window = np.hamming(filter_length)
+        h = h * window
+        
+        # Converte para o domínio da frequência usando FFT
+        # Preenche com zeros até n_samples para ter o mesmo tamanho do sinal
+        h_padded = np.zeros(n_samples, dtype=np.float64)
+        M = len(h) // 2
+        # Coloca o filtro centralizado (h[0] no índice 0, h[-M:] no final para circularidade)
+        h_padded[:M+1] = h[M:]
+        if M > 0:
+            h_padded[-M:] = h[:M]
+        
+        # Calcula a FFT do filtro
+        filter_response = np.fft.fft(h_padded)
+        # Usa apenas a magnitude (filtro passa-faixa ideal tem fase zero)
+        filter_response = np.abs(filter_response)
+        
+        return filter_response
+    
+    elif filter_shape == 'gaussian':
         # Filtro gaussiano (transições suaves)
         # Para filtros com frequências de corte específicas, ajusta o sigma para que
         # o filtro tenha transição suave entre low_freq e high_freq
@@ -111,16 +196,20 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50,
     return filter_response
 
 
-def apply_bandpass_filter(audio, sample_rate, center_freq, bandwidth=50, filter_shape='gaussian'):
+def apply_bandpass_filter(audio, sample_rate, center_freq, bandwidth=50, 
+                          low_cutoff=None, high_cutoff=None, filter_shape='sinc'):
     """
-    Aplica um filtro passa-banda centrado em uma frequência específica usando FFT.
+    Aplica um filtro passa-banda centrado em uma frequência específica.
     
     Args:
         audio: Array numpy com o sinal de áudio
         sample_rate: Taxa de amostragem do áudio
         center_freq: Frequência central do filtro (Hz)
-        bandwidth: Largura de banda do filtro (Hz)
-        filter_shape: Forma do filtro ('gaussian' ou 'rectangular')
+        bandwidth: Largura de banda do filtro (Hz) - usado apenas se low_cutoff/high_cutoff não fornecidos
+        low_cutoff: Frequência de corte inferior (Hz) - se None, calcula a partir de bandwidth
+        high_cutoff: Frequência de corte superior (Hz) - se None, calcula a partir de bandwidth
+        filter_shape: Forma do filtro ('sinc', 'gaussian' ou 'rectangular')
+                     'sinc' usa a resposta ao impulso matemática com numpy.sinc (padrão)
     
     Returns:
         Áudio filtrado
@@ -131,7 +220,9 @@ def apply_bandpass_filter(audio, sample_rate, center_freq, bandwidth=50, filter_
     audio_fft = np.fft.fft(audio)
     
     # Cria o filtro no domínio da frequência
-    filter_response = create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth, filter_shape)
+    filter_response = create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth, 
+                                             low_cutoff=low_cutoff, high_cutoff=high_cutoff, 
+                                             filter_shape=filter_shape)
     
     # Aplica o filtro multiplicando no domínio da frequência
     filtered_fft = audio_fft * filter_response
@@ -203,7 +294,7 @@ def apply_parametric_eq(audio, sample_rate, center_freq, gain_db=0, q=1.0):
 
 
 def process_audio(input_file, output_file=None, center_freq=100, bandwidth=50, 
-                  filter_type='bandpass', gain_db=0, q=1.0, filter_shape='gaussian'):
+                  filter_type='bandpass', gain_db=0, q=1.0, filter_shape='sinc'):
     """
     Processa um arquivo de áudio aplicando um filtro de frequência.
     
@@ -215,7 +306,8 @@ def process_audio(input_file, output_file=None, center_freq=100, bandwidth=50,
         filter_type: Tipo de filtro ('bandpass' ou 'parametric')
         gain_db: Ganho em dB (apenas para equalizador paramétrico)
         q: Fator Q (apenas para equalizador paramétrico)
-        filter_shape: Forma do filtro ('gaussian' ou 'rectangular')
+        filter_shape: Forma do filtro ('sinc', 'gaussian' ou 'rectangular')
+                     'sinc' usa a resposta ao impulso matemática com numpy.sinc (padrão)
     """
     print(f"Carregando arquivo: {input_file}")
     

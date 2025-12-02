@@ -73,6 +73,8 @@ python exemplo_uso.py
 - `-g, --gain FLOAT`: Ganho em dB para filtro paramétrico (padrão: 0)
 - `-q, --q FLOAT`: Fator Q para filtro paramétrico (padrão: 1.0)
 
+**Nota:** O filtro passa-banda usa por padrão a implementação matemática com `numpy.sinc` baseada na resposta ao impulso do filtro passa-faixa ideal.
+
 ### Exemplos
 
 **Filtro passa-banda em 100 Hz:**
@@ -90,11 +92,48 @@ python equalizer.py "arquivo.mp3" -f 100 -t parametric -g 6 -q 2.0
 python equalizer.py "arquivo.mp3" -f 100 -b 30
 ```
 
+## Implementação do Filtro Passa-Faixa
+
+O filtro passa-banda implementa a resposta ao impulso matemática de um filtro passa-faixa ideal usando `numpy.sinc`:
+
+### Resposta ao Impulso
+
+A resposta ao impulso `h[n]` é definida como:
+
+```
+h[n] = (sin(ω_c2 n) - sin(ω_c1 n)) / (nπ)  quando n ≠ 0
+h[n] = (ω_c2 - ω_c1) / π                    quando n = 0
+```
+
+Onde:
+- `ω_c1 = 2π f_c1 / fs` é a frequência de corte inferior normalizada (radianos por amostra)
+- `ω_c2 = 2π f_c2 / fs` é a frequência de corte superior normalizada (radianos por amostra)
+- `f_c1` e `f_c2` são as frequências de corte em Hz
+- `fs` é a taxa de amostragem
+
+### Implementação com numpy.sinc
+
+A implementação utiliza `numpy.sinc` para calcular eficientemente:
+
+```
+sin(ω n) / (nπ) = (ω / π) * sinc(ω n / π)
+```
+
+Onde `sinc(x) = sin(πx) / (πx)` é a função sinc normalizada.
+
+### Processamento
+
+1. A resposta ao impulso é calculada usando a fórmula matemática acima
+2. Uma janela Hamming é aplicada para reduzir artefatos de ringing
+3. O filtro é convertido para o domínio da frequência via FFT
+4. O sinal é filtrado multiplicando no domínio da frequência
+
 ## Funcionalidades
 
 - Suporta arquivos MP3, WAV e outros formatos suportados pelo librosa
-- Filtro passa-banda (bandpass) - isola uma faixa de frequências
-- Equalizador paramétrico - permite boost/cut em frequências específicas
+- **Filtro passa-banda (bandpass)** - isola uma faixa de frequências usando resposta ao impulso matemática com `numpy.sinc` (padrão)
+- **Filtros alternativos** - suporta também filtros gaussianos e retangulares
+- **Equalizador paramétrico** - permite boost/cut em frequências específicas
 - Preserva múltiplos canais (estéreo)
 - Saída em formato WAV de alta qualidade
 
@@ -148,9 +187,10 @@ eq.stop_processing()
 ## Estrutura do Código
 
 - `equalizer.py`: Script principal com filtros de frequência
-- `multi_band_equalizer.py`: Equalizador de 5 bandas para arquivos
+  - Implementa filtro passa-faixa usando resposta ao impulso com `numpy.sinc`
+  - Suporta filtros gaussianos e retangulares alternativos
+  - Equalizador paramétrico para boost/cut
 - `realtime_equalizer.py`: Equalizador em tempo real com interface gráfica
-- `exemplo_uso.py`: Exemplo simples de uso
-- `exemplo_multi_band.py`: Exemplo do equalizador multi-banda
-- `exemplo_realtime.py`: Exemplo programático do equalizador em tempo real
+  - 5 bandas equalizáveis (100 Hz, 330 Hz, 1 kHz, 3.3 kHz, 10 kHz)
+  - Interface gráfica com sliders para ajuste de ganho
 - `requirements.txt`: Dependências do projeto
