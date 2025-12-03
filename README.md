@@ -17,13 +17,13 @@ pip install -r requirements.txt
 Para filtrar o arquivo MP3 com um filtro centrado em 100 Hz:
 
 ```bash
-python equalizer.py "tracks/The Cure - In Between Days.mp3" -f 100
+python src/equalizer.py "tracks/The Cure - In Between Days.mp3" -f 100
 ```
 
 Ou simplesmente execute sem argumentos (usa o arquivo padrão):
 
 ```bash
-python equalizer.py
+python src/equalizer.py
 ```
 
 ### Usando Outras Músicas
@@ -38,23 +38,23 @@ Para usar suas próprias músicas com o equalizador, siga estes passos:
    
    **Opção A - Especificando o caminho completo:**
    ```bash
-   python equalizer.py "tracks/MinhaMusica.mp3" -f 100
+   python src/equalizer.py "tracks/MinhaMusica.mp3" -f 100
    ```
    
    **Opção B - Usando o equalizador em tempo real:**
    ```bash
-   python realtime_equalizer.py "tracks/MinhaMusica.mp3"
+   python main.py "tracks/MinhaMusica.mp3"
    ```
    
    **Opção C - Carregando pela interface gráfica:**
-   - Execute `python realtime_equalizer.py`
+   - Execute `python main.py`
    - Clique no botão "Carregar Arquivo" na interface
    - Selecione sua música da pasta `tracks/`
 
 3. **Formatos suportados**:
    - MP3, WAV, FLAC, OGG, M4A e outros formatos suportados pelo librosa
 
-**Dica:** Se você quiser que sua música seja o arquivo padrão, edite os arquivos `equalizer.py` ou `realtime_equalizer.py` e altere o caminho na variável `default_file`.
+**Dica:** Se você quiser que sua música seja o arquivo padrão, edite o arquivo `main.py` e altere o caminho na variável `default_file` dentro da função `main()`.
 
 ### Exemplo Simples
 
@@ -79,17 +79,17 @@ python exemplo_uso.py
 
 **Filtro passa-banda em 100 Hz:**
 ```bash
-python equalizer.py "arquivo.mp3" -f 100 -b 50
+python src/equalizer.py "arquivo.mp3" -f 100 -b 50
 ```
 
 **Equalizador paramétrico (boost de 6 dB em 100 Hz):**
 ```bash
-python equalizer.py "arquivo.mp3" -f 100 -t parametric -g 6 -q 2.0
+python src/equalizer.py "arquivo.mp3" -f 100 -t parametric -g 6 -q 2.0
 ```
 
 **Filtro com largura de banda personalizada:**
 ```bash
-python equalizer.py "arquivo.mp3" -f 100 -b 30
+python src/equalizer.py "arquivo.mp3" -f 100 -b 30
 ```
 
 ## Implementação do Filtro Passa-Faixa
@@ -142,7 +142,13 @@ Onde `sinc(x) = sin(πx) / (πx)` é a função sinc normalizada.
 O projeto inclui um equalizador gráfico em tempo real com interface gráfica:
 
 ```bash
-python realtime_equalizer.py
+python main.py
+```
+
+Ou com um arquivo específico:
+
+```bash
+python main.py "tracks/MinhaMusica.mp3"
 ```
 
 ### Características do Equalizador em Tempo Real
@@ -184,49 +190,29 @@ O equalizador em tempo real inclui um analisador de espectro de barras com 10 ba
 
 O analisador calcula o espectro de frequência usando FFT com janela de Hamming para reduzir vazamento espectral, e aplica suavização para evitar flickering na visualização.
 
-### Exemplo Programático
-
-```python
-from realtime_equalizer import RealTimeEqualizer
-from spectrum_analyzer import SpectrumAnalyzer
-
-# Cria o equalizador
-eq = RealTimeEqualizer(sample_rate=44100, chunk_size=1024)
-
-# Define ganhos em dB
-eq.set_band_gain_db(0, 6.0)   # 100 Hz: +6 dB
-eq.set_band_gain_db(2, -3.0)  # 1000 Hz: -3 dB
-
-# Cria o analisador de espectro
-analyzer = SpectrumAnalyzer(sample_rate=44100, n_bands=10)
-
-# Inicia processamento
-eq.start_processing()
-# ... processa áudio ...
-
-# Obtém o último chunk processado e analisa
-processed_chunk = eq.get_last_processed_chunk()
-if processed_chunk is not None:
-    band_levels, band_peaks = analyzer.analyze(processed_chunk)
-    # band_levels e band_peaks contêm os níveis normalizados (0-1) de cada banda
-
-eq.stop_processing()
-```
-
 ## Estrutura do Código
 
-- `equalizer.py`: Script principal com filtros de frequência
-  - Implementa filtro passa-faixa usando resposta ao impulso com `numpy.sinc`
-  - Suporta filtros gaussianos e retangulares alternativos
-  - Equalizador paramétrico para boost/cut
-- `realtime_equalizer.py`: Equalizador em tempo real com interface gráfica
-  - 5 bandas equalizáveis (100 Hz, 330 Hz, 1 kHz, 3.3 kHz, 10 kHz)
-  - Interface gráfica com sliders para ajuste de ganho
-  - Suporta entrada de microfone ou arquivo de áudio
-  - Integração com analisador de espectro
-- `spectrum_analyzer.py`: Analisador de espectro de barras
-  - Classe `SpectrumAnalyzer` para análise de espectro em tempo real
-  - 10 bandas com distribuição logarítmica
-  - Cálculo de FFT com janela de Hamming
-  - Suavização de níveis e rastreamento de picos
+- `main.py`: Ponto de entrada principal do equalizador em tempo real
+  - Contém a função `main()` que inicializa a aplicação
+  - Adiciona `src` ao `sys.path` para permitir imports dos módulos
+  - Importa `EqualizerGUI` de `realtime_equalizer` e inicia a interface gráfica
+- `src/`: Diretório contendo os módulos do projeto
+  - `equalizer.py`: Script principal com filtros de frequência
+    - Implementa filtro passa-faixa usando resposta ao impulso com `numpy.sinc`
+    - Suporta filtros gaussianos e retangulares alternativos
+    - Equalizador paramétrico para boost/cut
+    - Pode ser executado diretamente: `python src/equalizer.py`
+  - `realtime_equalizer.py`: Módulo do equalizador em tempo real
+    - Classe `RealTimeEqualizer` para processamento de áudio em tempo real
+    - Classe `EqualizerGUI` para interface gráfica com Tkinter
+    - 5 bandas equalizáveis (100 Hz, 330 Hz, 1 kHz, 3.3 kHz, 10 kHz)
+    - Suporta entrada de microfone ou arquivo de áudio
+    - Integração com analisador de espectro
+  - `spectrum_analyzer.py`: Analisador de espectro de barras
+    - Classe `SpectrumAnalyzer` para análise de espectro em tempo real
+    - 10 bandas com distribuição logarítmica
+    - Cálculo de FFT com janela de Hamming
+    - Suavização de níveis e rastreamento de picos
+  - `__init__.py`: Arquivo que torna `src` um pacote Python
 - `requirements.txt`: Dependências do projeto
+- `tracks/`: Diretório para arquivos de áudio de exemplo
