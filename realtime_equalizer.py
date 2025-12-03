@@ -39,14 +39,8 @@ class RealTimeEqualizer:
         # Ganhos em dB para cada banda (inicialmente 0 dB = sem alteração)
         self.gains_db = [0.0] * len(self.center_frequencies)
         
-        # Largura de banda de cada filtro (Hz)
-        # Usa largura de banda proporcional para melhor cobertura
-        # Para cada frequência, usa aproximadamente 2/3 de oitava para efeitos mais perceptíveis
-        # Isso garante que cada banda tenha uma cobertura adequada
-        self.bandwidth_factor = 0.6  # Fator para calcular largura de banda proporcional (maior = mais larga)
-        
         # Forma do filtro ('gaussian' ou 'rectangular')
-        self.filter_shape = 'gaussian'
+        self.filter_shape = 'sinc'
         
         # Pré-calcula os filtros no domínio da frequência para cada banda
         # Usa um tamanho de FFT maior que o chunk para melhor resolução
@@ -75,7 +69,6 @@ class RealTimeEqualizer:
         conforme especificação do projeto.
         """
         self.band_filters_fft = []
-        self.bandwidths = []  # Armazena a largura de banda de cada filtro
         self.cutoff_frequencies = []  # Armazena as frequências de corte
         
         # Calcula as frequências de corte que ficam no meio entre as frequências centrais
@@ -87,7 +80,6 @@ class RealTimeEqualizer:
             
             # Calcula largura de banda efetiva
             bandwidth = high_cutoff - low_cutoff
-            self.bandwidths.append(bandwidth)
             
             # Usa create_frequency_filter do equalizer.py com frequências de corte específicas
             filter_response = create_frequency_filter(
@@ -403,7 +395,6 @@ class EqualizerGUI:
         
         # Variáveis para os sliders (em dB)
         self.slider_vars = []
-        self.sliders = []
         
         # Arquivo de áudio
         self.audio_file = audio_file
@@ -516,7 +507,6 @@ class EqualizerGUI:
                 label="dB"
             )
             slider.pack()
-            self.sliders.append(slider)
             
             # Label do valor atual
             value_label = tk.Label(
