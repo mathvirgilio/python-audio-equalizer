@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import messagebox, filedialog
 from equalizer import create_frequency_filter, calculate_cutoff_frequencies
 from spectrum_analyzer import SpectrumAnalyzer
+from fft import fft, ifft
 import librosa
 import os
 
@@ -185,7 +186,7 @@ class RealTimeEqualizer:
                 combined_filter -= filter_response * (1.0 - gain_linear)
         
         # Converte o sinal do buffer para o domínio da frequência
-        audio_fft = np.fft.fft(self.input_buffer)
+        audio_fft = fft(self.input_buffer)
         
         # Aplica o filtro combinado: Y[k] = X[k] * H[k]
         # onde H[k] é o filtro paramétrico combinado
@@ -197,7 +198,10 @@ class RealTimeEqualizer:
             print(f"Filtro - Min: {np.min(combined_filter):.3f}, Max: {np.max(combined_filter):.3f}, Mean: {np.mean(combined_filter):.3f}")
         
         # Converte de volta para o domínio do tempo
-        filtered_audio = np.real(np.fft.ifft(filtered_fft))
+        filtered_audio = np.real(ifft(filtered_fft))
+        
+        # Converte para o tipo do buffer de entrada para preservar precisão
+        filtered_audio = filtered_audio.astype(self.input_buffer.dtype)
         
         # Aplica overlap-add: adiciona a parte de overlap do buffer de saída anterior
         output = filtered_audio[:self.hop_size] + self.output_buffer[:self.hop_size]
@@ -206,10 +210,13 @@ class RealTimeEqualizer:
         self.output_buffer[:-self.hop_size] = filtered_audio[self.hop_size:]
         self.output_buffer[-self.hop_size:] = 0
         
-        # Normaliza para evitar clipping
+        # Normaliza para evitar clipping (apenas se necessário)
         max_val = np.max(np.abs(output))
         if max_val > 1.0:
             output = output / max_val
+        else:
+            # Garante que o tipo de dados seja preservado
+            output = output.astype(self.input_buffer.dtype)
         
         # Armazena o chunk processado para análise de espectro
         with self.spectrum_lock:

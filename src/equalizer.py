@@ -3,6 +3,7 @@ import librosa
 import soundfile as sf
 import argparse
 import os
+from fft import fft, ifft, fftfreq
 
 
 def calculate_cutoff_frequencies(center_frequencies, sample_rate):
@@ -112,7 +113,7 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50,
         Array com os valores do filtro no domínio da frequência
     """
     # Calcula as frequências correspondentes a cada bin da FFT
-    freqs = np.fft.fftfreq(n_samples, 1.0 / sample_rate)
+    freqs = fftfreq(n_samples, 1.0 / sample_rate)
     freqs = np.abs(freqs)  # Apenas valores positivos
     
     # Calcula as frequências de corte
@@ -157,7 +158,7 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50,
             h_padded[-M:] = h[:M]
         
         # Calcula a FFT do filtro
-        filter_response = np.fft.fft(h_padded)
+        filter_response = fft(h_padded)
         # Usa apenas a magnitude (filtro passa-faixa ideal tem fase zero)
         filter_response = np.abs(filter_response)
         
@@ -213,7 +214,7 @@ def apply_bandpass_filter(audio, sample_rate, center_freq, bandwidth=50,
     n_samples = len(audio)
     
     # Converte para o domínio da frequência
-    audio_fft = np.fft.fft(audio)
+    audio_fft = fft(audio)
     
     # Cria o filtro no domínio da frequência
     filter_response = create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth, 
@@ -224,7 +225,7 @@ def apply_bandpass_filter(audio, sample_rate, center_freq, bandwidth=50,
     filtered_fft = audio_fft * filter_response
     
     # Converte de volta para o domínio do tempo
-    filtered_audio = np.real(np.fft.ifft(filtered_fft))
+    filtered_audio = np.real(ifft(filtered_fft))
     
     return filtered_audio
 
@@ -255,10 +256,10 @@ def apply_parametric_eq(audio, sample_rate, center_freq, gain_db=0, q=1.0):
     bandwidth = center_freq / q
     
     # Converte para o domínio da frequência
-    audio_fft = np.fft.fft(audio)
+    audio_fft = fft(audio)
     
     # Cria o filtro paramétrico no domínio da frequência
-    freqs = np.fft.fftfreq(n_samples, 1.0 / sample_rate)
+    freqs = fftfreq(n_samples, 1.0 / sample_rate)
     freqs = np.abs(freqs)
     
     # Filtro gaussiano para o equalizador paramétrico
@@ -279,7 +280,7 @@ def apply_parametric_eq(audio, sample_rate, center_freq, gain_db=0, q=1.0):
     filtered_fft = audio_fft * eq_response
     
     # Converte de volta para o domínio do tempo
-    output = np.real(np.fft.ifft(filtered_fft))
+    output = np.real(ifft(filtered_fft))
     
     # Normaliza para evitar clipping
     max_val = np.max(np.abs(output))

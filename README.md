@@ -128,6 +128,32 @@ Onde `sinc(x) = sin(πx) / (πx)` é a função sinc normalizada.
 3. O filtro é convertido para o domínio da frequência via FFT
 4. O sinal é filtrado multiplicando no domínio da frequência
 
+## Implementação Customizada da FFT
+
+Este projeto utiliza uma **implementação própria da FFT (Fast Fourier Transform)** em vez de depender do NumPy para esta funcionalidade. A implementação está localizada em `src/fft.py` e é totalmente compatível com `numpy.fft.fft`, `numpy.fft.ifft` e `numpy.fft.fftfreq`.
+
+### Características da Implementação
+
+- **Algoritmo Cooley-Tukey**: Implementação recursiva do algoritmo FFT clássico
+- **Compatibilidade Total**: Interface idêntica ao NumPy, permitindo substituição direta
+- **Suporte a Arrays Multi-dimensionais**: Processa arrays de qualquer dimensão
+- **Zero-padding Automático**: Suporta tamanhos que não são potência de 2
+- **Alta Precisão**: Precisão numérica equivalente ao NumPy (erros na ordem de 10^-16)
+- **Funções Implementadas**:
+  - `fft()`: Transformada de Fourier direta
+  - `ifft()`: Transformada de Fourier inversa
+  - `fftfreq()`: Cálculo das frequências correspondentes aos bins da FFT
+
+### Por que uma Implementação Customizada?
+
+A implementação customizada da FFT foi desenvolvida para:
+- **Aprendizado**: Demonstrar como o algoritmo FFT funciona internamente
+- **Controle**: Permitir modificações e otimizações específicas para processamento de áudio
+- **Independência**: Reduzir dependência de bibliotecas externas para operações fundamentais
+- **Transparência**: Facilitar o entendimento do processamento de sinais no projeto
+
+Para mais detalhes sobre a implementação, consulte o arquivo [FFT_IMPLEMENTATION.md](FFT_IMPLEMENTATION.md).
+
 ## Funcionalidades
 
 - Suporta arquivos MP3, WAV e outros formatos suportados pelo librosa
@@ -213,6 +239,11 @@ O analisador calcula o espectro de frequência usando FFT com janela de Hamming 
     - 10 bandas com distribuição logarítmica
     - Cálculo de FFT com janela de Hamming
     - Suavização de níveis e rastreamento de picos
+  - `fft.py`: Implementação customizada da FFT
+    - Algoritmo Cooley-Tukey recursivo
+    - Funções `fft()`, `ifft()` e `fftfreq()` compatíveis com NumPy
+    - Suporte a arrays multi-dimensionais e zero-padding
+    - Alta precisão numérica (erros na ordem de 10^-16)
   - `__init__.py`: Arquivo que torna `src` um pacote Python
 - `requirements.txt`: Dependências do projeto
 - `tracks/`: Diretório para arquivos de áudio de exemplo

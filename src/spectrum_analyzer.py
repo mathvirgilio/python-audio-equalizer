@@ -4,6 +4,7 @@ Implementa um analisador de espectro de barras com 10 bandas para visualização
 """
 
 import numpy as np
+from fft import fft, fftfreq
 
 
 class SpectrumAnalyzer:
@@ -72,16 +73,16 @@ class SpectrumAnalyzer:
         windowed = audio_chunk * np.hamming(n_samples)
         
         # Calcula FFT
-        fft = np.fft.fft(windowed, n=fft_size)
+        fft_result = fft(windowed, n=fft_size)
         
         # Calcula magnitude (espectro de potência)
-        magnitude = np.abs(fft[:fft_size // 2])
+        magnitude = np.abs(fft_result[:fft_size // 2])
         
         # Converte para dB (com proteção contra log(0))
         magnitude_db = 20 * np.log10(magnitude + 1e-10)
         
         # Calcula as frequências correspondentes aos bins da FFT
-        freqs = np.fft.fftfreq(fft_size, 1.0 / self.sample_rate)[:fft_size // 2]
+        freqs = fftfreq(fft_size, 1.0 / self.sample_rate)[:fft_size // 2]
         
         # Calcula o nível de energia para cada banda
         new_levels = np.zeros(self.n_bands, dtype=np.float32)
