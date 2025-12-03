@@ -106,7 +106,7 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50,
         bandwidth: Largura de banda do filtro (Hz) - usado apenas se low_cutoff/high_cutoff não fornecidos
         low_cutoff: Frequência de corte inferior (Hz) - se None, calcula a partir de bandwidth
         high_cutoff: Frequência de corte superior (Hz) - se None, calcula a partir de bandwidth
-        filter_shape: Forma do filtro ('gaussian', 'rectangular' ou 'sinc')
+        filter_shape: Forma do filtro ('gaussian' ou 'sinc')
     
     Returns:
         Array com os valores do filtro no domínio da frequência
@@ -187,13 +187,9 @@ def create_frequency_filter(n_samples, sample_rate, center_freq, bandwidth=50,
             window[transition_high] = (high_freq - freqs[transition_high]) / transition_width
         
         filter_response *= window
+        return filter_response
     else:
-        # Filtro retangular (transições abruptas)
-        filter_response = np.zeros_like(freqs)
-        mask = (freqs >= low_freq) & (freqs <= high_freq)
-        filter_response[mask] = 1.0
-    
-    return filter_response
+        raise ValueError(f"filter_shape deve ser 'sinc' ou 'gaussian', recebido: {filter_shape}")
 
 
 def apply_bandpass_filter(audio, sample_rate, center_freq, bandwidth=50, 
@@ -208,7 +204,7 @@ def apply_bandpass_filter(audio, sample_rate, center_freq, bandwidth=50,
         bandwidth: Largura de banda do filtro (Hz) - usado apenas se low_cutoff/high_cutoff não fornecidos
         low_cutoff: Frequência de corte inferior (Hz) - se None, calcula a partir de bandwidth
         high_cutoff: Frequência de corte superior (Hz) - se None, calcula a partir de bandwidth
-        filter_shape: Forma do filtro ('sinc', 'gaussian' ou 'rectangular')
+        filter_shape: Forma do filtro ('sinc' ou 'gaussian')
                      'sinc' usa a resposta ao impulso matemática com numpy.sinc (padrão)
     
     Returns:
@@ -306,7 +302,7 @@ def process_audio(input_file, output_file=None, center_freq=100, bandwidth=50,
         filter_type: Tipo de filtro ('bandpass' ou 'parametric')
         gain_db: Ganho em dB (apenas para equalizador paramétrico)
         q: Fator Q (apenas para equalizador paramétrico)
-        filter_shape: Forma do filtro ('sinc', 'gaussian' ou 'rectangular')
+        filter_shape: Forma do filtro ('sinc' ou 'gaussian')
                      'sinc' usa a resposta ao impulso matemática com numpy.sinc (padrão)
     """
     print(f"Carregando arquivo: {input_file}")
