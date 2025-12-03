@@ -7,7 +7,7 @@ import os
 
 # Adiciona o diretório src ao path para permitir imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-from realtime_equalizer import EqualizerGUI
+from src.realtime_equalizer import EqualizerGUI
 
 def main():
     """Função principal."""
